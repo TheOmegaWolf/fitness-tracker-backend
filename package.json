@@ -9,13 +9,23 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@prisma/client": "^6.5.0",
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "jsonwebtoken": "^9.0.2",
+    "mysql2": "^3.14.0",
+    "next": "15.2.3",
+    "prisma": "^6.5.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "next": "15.2.3"
+    "sequelize": "^6.37.6"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/jsonwebtoken": "^9.0.9",
     "eslint": "^9",
-    "eslint-config-next": "15.2.3",
-    "@eslint/eslintrc": "^3"
+    "eslint-config-next": "15.2.3"
   }
 }
