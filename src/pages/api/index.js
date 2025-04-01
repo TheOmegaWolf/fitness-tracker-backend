@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const { initializeDatabase } = require('./lib/database'); // Ensure correct path
-const userRoutes = require('./api/routes/userRoutes');
+const userRoutes = require('./users');
 
 const app = express();
 app.use(express.json());
