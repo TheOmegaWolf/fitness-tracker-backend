@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/database';
 import Cors from 'cors';
+import { DateTime } from 'luxon';
 
 // Initialize the CORS middleware
 const cors = Cors({
@@ -27,11 +28,11 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
-  
+
   if (req.method === 'POST') {
     try {
       const { email, password } = req.body;
-      
+
       if (!email) {
         return res.status(400).json({ error: 'Email is required' });
       }
@@ -40,59 +41,71 @@ export default async function handler(req, res) {
       const user = await prisma.users.findUnique({
         where: { email },
         include: {
-          profile: true
-        }
+          profile: true,
+        },
       });
 
       // If user doesn't exist
       if (!user) {
         return res.status(404).json({ error: 'User not found' });
       }
-      
+
       // In this case, we're not actually verifying the password
       // since Firebase is handling authentication
       // We're just checking if the user exists in our database
-      
+
       // Return user data without the password
       const { password: _, ...userWithoutPassword } = user;
-      
+
       return res.status(200).json({
         success: true,
         message: 'Login successful',
-        user: userWithoutPassword
+        user: userWithoutPassword,
       });
-      
     } catch (error) {
-      console.error("Login error:", error);
+      console.error('Login error:', error);
       return res.status(500).json({ error: 'Error during login process' });
     }
-  } 
-  else if (req.method === 'PUT') {
+  } else if (req.method === 'PUT') {
     try {
-      const { email, lastLogin } = req.body;
-      
+      const { email } = req.body;
+
       if (!email) {
         return res.status(400).json({ error: 'Email is required for updating last login' });
       }
 
+      // Get the current UTC time
+      const currentDate = new Date();
+
+      // Convert to Central Time (America/Chicago, which will be CDT on April 1, 2025)
+      const timeZone = 'America/Chicago';
+      const zonedDate = DateTime.fromJSDate(currentDate, { zone: 'utc' }).setZone(timeZone);
+
+      // Format the date to MySQL-compatible format (YYYY-MM-DD HH:mm:ss)
+      const formattedDate = zonedDate.toFormat('yyyy-MM-dd HH:mm:ss');
+
+      console.log('Current UTC time:', currentDate.toISOString());
+      console.log('Converted to Central Daylight Time (CDT):', formattedDate);
+
+      // Update the user with the adjusted last_login time
       const updatedUser = await prisma.users.update({
         where: { email },
         data: {
-          last_login: lastLogin ? new Date(lastLogin) : new Date()
-        }
+          last_login: new Date(formattedDate), // Prisma will handle the conversion to UTC for storage
+        },
       });
 
       return res.status(200).json({
         success: true,
         message: 'Last login updated successfully',
-        user: updatedUser
+        timestamp: formattedDate,
+        user: updatedUser,
       });
     } catch (error) {
-      console.error("Error updating last login:", error);
-      return res.status(500).json({ error: 'Error updating last login' });
+      console.error('Error updating last login:', error);
+      return res.status(500).json({ error: 'Error updating last login', details: error.message });
     }
-  }
-  else {
+  } else {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 }
