@@ -8,7 +8,6 @@ const cors = Cors({
   credentials: true,
 });
 
-// Helper method to run middleware
 function runMiddleware(req, res, fn) {
   return new Promise((resolve, reject) => {
     fn(req, res, (result) => {
@@ -21,248 +20,177 @@ function runMiddleware(req, res, fn) {
 }
 
 export default async function handler(req, res) {
-  // Run the CORS middleware
   await runMiddleware(req, res, cors);
 
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
+  if (req.method === 'OPTIONS') return res.status(200).end();
 
-  // GET profile data
   if (req.method === 'GET') {
     try {
       const { email } = req.query;
+      if (!email) return res.status(400).json({ error: 'Email is required' });
 
-      if (!email) {
-        return res.status(400).json({ error: 'Email is required' });
-      }
-
-      const userProfile = await prisma.users.findUnique({
+      const user = await prisma.users.findUnique({
         where: { email },
         include: {
           profile: {
             include: {
-              workouts: {
-                include: {
-                  exercise: true
-                },
-                orderBy: {
-                  workout_date: 'desc'
-                },
-                take: 10
-              },
-              activities: {
-                orderBy: {
-                  activity_id: 'desc'
-                },
-                take: 5
-              }
+              workouts: { include: { exercise: true }, orderBy: { workout_date: 'desc' }, take: 10 },
+              activities: { orderBy: { activity_id: 'desc' }, take: 5 }
             }
           },
           subscription: true
         }
       });
 
-      if (!userProfile) {
-        return res.status(404).json({ error: 'Profile not found' });
-      }
+      if (!user) return res.status(404).json({ error: 'Profile not found' });
 
-      // Calculate fitness statistics
-      const workouts = userProfile.profile?.workouts || [];
+      const workouts = user.profile?.workouts || [];
+      const totalDuration = workouts.reduce((acc, w) => acc + (w.duration || 0), 0);
       const totalWorkouts = workouts.length;
-      const totalHours = workouts.reduce((acc, workout) => acc + (workout.duration || 0), 0) / 60;
-      const avgWorkoutMinutes = totalWorkouts > 0 ? (totalHours * 60) / totalWorkouts : 0;
-      
-      // Find workout streaks
-      let currentStreak = 0;
-      let longestStreak = 0;
-      let lastWorkoutDate = null;
+      const avgWorkout = totalWorkouts > 0 ? totalDuration / totalWorkouts : 0;
 
-      workouts.forEach((workout) => {
-        const workoutDate = new Date(workout.workout_date).toDateString();
-        if (!lastWorkoutDate) {
-          currentStreak = 1;
-        } else {
-          const dayDiff = Math.floor((new Date(lastWorkoutDate) - new Date(workoutDate)) / (1000 * 60 * 60 * 24));
-          if (dayDiff === 1) {
-            currentStreak++;
-          } else {
+      // Streaks
+      let currentStreak = 0, longestStreak = 0, lastDate = null;
+      workouts.forEach((w) => {
+        const d = new Date(w.workout_date).toDateString();
+        if (!lastDate) currentStreak = 1;
+        else {
+          const diff = (new Date(lastDate) - new Date(d)) / (1000 * 60 * 60 * 24);
+          if (diff === 1) currentStreak++;
+          else {
             longestStreak = Math.max(longestStreak, currentStreak);
             currentStreak = 1;
           }
         }
-        lastWorkoutDate = workoutDate;
+        lastDate = d;
       });
       longestStreak = Math.max(longestStreak, currentStreak);
 
-      // Enhance the response with calculated statistics
-      const enhancedProfile = {
-        ...userProfile,
-        fitnessStats: {
+      const exerciseHistory = JSON.parse(user.profile?.exercise_history || '{}');
+      const progress = JSON.parse(user.profile?.progress || '{}');
+
+      const response = {
+        personalInfo: {
+          firstName: user.name?.split(' ')[0] || '',
+          lastName: user.name?.split(' ')[1] || '',
+          email: user.email,
+          gender: exerciseHistory.gender || '',
+          birthdate: exerciseHistory.birthdate || '',
+          height: user.profile?.curr_height || 0,
+          currentWeight: user.profile?.curr_weight || 0,
+          goalWeight: progress.targetWeight || 0,
+          phoneNumber: user.phone || '',
+          profileImage: user.profile?.photo || '',
+        },
+        fitnessInfo: {
+          fitnessLevel: exerciseHistory.fitnessLevel || '',
+          activityLevel: exerciseHistory.activityLevel || '',
+          workoutFrequency: exerciseHistory.workoutFrequency || 0,
+          fitnessGoals: progress.fitnessGoals || [],
+          preferredWorkouts: exerciseHistory.preferredWorkouts || [],
+          medicalConditions: exerciseHistory.medicalConditions || [],
+          startDate: progress.startDate || '',
+        },
+        accountInfo: {
+          username: user.username || '',
+          memberSince: user.createdAt?.toISOString().split('T')[0],
+          subscription: user.subscription?.type || 'Free',
+          subscriptionRenewal: user.subscription?.renewalDate?.toISOString().split('T')[0],
+          notificationPreferences: {
+            email: user.email_notifications || false,
+            push: user.push_notifications || false,
+            sms: user.sms_notifications || false,
+          },
+          dataSharing: {
+            anonymizedResearch: user.research_consent || false,
+            thirdPartyApps: user.third_party_sharing || false,
+          },
+        },
+        statistics: {
           totalWorkouts,
-          totalHours: Math.round(totalHours),
-          avgWorkoutMinutes: Math.round(avgWorkoutMinutes),
+          totalDuration,
+          averageWorkoutLength: Math.round(avgWorkout),
           longestStreak,
           currentStreak,
-          caloriesBurned: Math.round(userProfile.profile?.calories_burnt || 0),
+          caloriesBurned: Math.round(user.profile?.calories_burnt || 0),
+          favoriteExercise: exerciseHistory.favoriteExercise || 'Not set',
         }
+        purchasedPlans: user.profile?.purchased_plans || []
       };
 
-      return res.status(200).json(enhancedProfile);
-    } catch (error) {
-      console.error('Error fetching profile:', error);
+      return res.status(200).json(response);
+
+    } catch (err) {
+      console.error('GET error:', err);
       return res.status(500).json({ error: 'Error fetching profile data' });
     }
   }
 
-  // UPDATE profile data
   if (req.method === 'PUT') {
     try {
       const { email, profileData } = req.body;
-
-      if (!email || !profileData) {
+      if (!email || !profileData)
         return res.status(400).json({ error: 'Email and profile data are required' });
-      }
 
-      console.log('Attempting to update profile with:', { email, profileData });
-      
-      // Update user data
-      const updatedProfile = await prisma.users.update({
+      const updatedUser = await prisma.users.update({
         where: { email },
         data: {
-          name: profileData.firstName && profileData.lastName 
-            ? `${profileData.firstName} ${profileData.lastName}`
-            : profileData.name,
-          phone: profileData.phoneNumber,
+          name: `${profileData.personalInfo.firstName} ${profileData.personalInfo.lastName}`,
+          phone: profileData.personalInfo.phoneNumber,
           profile: {
             upsert: {
               create: {
-                curr_weight: profileData.currentWeight,
-                curr_height: profileData.height,
-                total_steps: profileData.totalSteps || 0,
-                calories_burnt: profileData.caloriesBurned || 0,
-                photo: profileData.profileImage,
+                curr_weight: profileData.personalInfo.currentWeight,
+                curr_height: profileData.personalInfo.height,
+                calories_burnt: profileData.statistics.caloriesBurned || 0,
+                photo: profileData.personalInfo.profileImage,
                 exercise_history: JSON.stringify({
-                  fitnessLevel: profileData.fitnessLevel || 'Beginner',
-                  activityLevel: profileData.activityLevel || 'Moderate',
-                  workoutFrequency: profileData.workoutFrequency || '3 times per week',
-                  preferredWorkouts: profileData.preferredWorkouts || [],
-                  medicalConditions: profileData.medicalConditions || [],
-                  gender: profileData.gender,
-                  birthdate: profileData.birthdate,
-                  favoriteExercise: profileData.favoriteExercise
+                  ...profileData.fitnessInfo,
+                  gender: profileData.personalInfo.gender,
+                  birthdate: profileData.personalInfo.birthdate,
+                  favoriteExercise: profileData.statistics.favoriteExercise
                 }),
                 progress: JSON.stringify({
-                  targetWeight: profileData.goalWeight,
-                  fitnessGoals: profileData.fitnessGoals || [],
-                  startDate: profileData.startDate || new Date().toISOString(),
+                  targetWeight: profileData.personalInfo.goalWeight,
+                  fitnessGoals: profileData.fitnessInfo.fitnessGoals,
+                  startDate: profileData.fitnessInfo.startDate,
                   lastUpdated: new Date().toISOString()
                 }),
-                nutrition: profileData.nutrition ? JSON.stringify(profileData.nutrition) : null,
-                active_plan: profileData.subscription
+                purchasedPlans: user.profile?.purchased_plans || [] 
               },
               update: {
-                curr_weight: profileData.currentWeight,
-                curr_height: profileData.height,
-                total_steps: profileData.totalSteps || 0,
-                calories_burnt: profileData.caloriesBurned || 0,
-                photo: profileData.profileImage,
+                curr_weight: profileData.personalInfo.currentWeight,
+                curr_height: profileData.personalInfo.height,
+                calories_burnt: profileData.statistics.caloriesBurned || 0,
+                photo: profileData.personalInfo.profileImage,
                 exercise_history: JSON.stringify({
-                  fitnessLevel: profileData.fitnessLevel || 'Beginner',
-                  activityLevel: profileData.activityLevel || 'Moderate',
-                  workoutFrequency: profileData.workoutFrequency || '3 times per week',
-                  preferredWorkouts: profileData.preferredWorkouts || [],
-                  medicalConditions: profileData.medicalConditions || [],
-                  gender: profileData.gender,
-                  birthdate: profileData.birthdate,
-                  favoriteExercise: profileData.favoriteExercise
+                  ...profileData.fitnessInfo,
+                  gender: profileData.personalInfo.gender,
+                  birthdate: profileData.personalInfo.birthdate,
+                  favoriteExercise: profileData.statistics.favoriteExercise
                 }),
                 progress: JSON.stringify({
-                  targetWeight: profileData.goalWeight,
-                  fitnessGoals: profileData.fitnessGoals || [],
+                  targetWeight: profileData.personalInfo.goalWeight,
+                  fitnessGoals: profileData.fitnessInfo.fitnessGoals,
+                  startDate: profileData.fitnessInfo.startDate,
                   lastUpdated: new Date().toISOString()
                 }),
-                nutrition: profileData.nutrition ? JSON.stringify(profileData.nutrition) : null,
-                active_plan: profileData.subscription
+                purchasedPlans: user.profile?.purchased_plans || [] 
               }
             }
           }
-        },
-        include: {
-          profile: {
-            include: {
-              workouts: {
-                include: {
-                  exercise: true
-                },
-                orderBy: {
-                  workout_date: 'desc'
-                },
-                take: 10
-              },
-              activities: {
-                orderBy: {
-                  activity_id: 'desc'
-                },
-                take: 5
-              }
-            }
-          },
-          subscription: true
         }
       });
 
-      // Calculate additional statistics
-      const workouts = updatedProfile.profile?.workouts || [];
-      const totalWorkouts = workouts.length;
-      const totalMinutes = workouts.reduce((acc, workout) => acc + (workout.duration || 0), 0);
-      const totalHours = Math.floor(totalMinutes / 60);
-      const avgWorkoutMinutes = totalWorkouts > 0 ? Math.round(totalMinutes / totalWorkouts) : 0;
+      return res.status(200).json({ success: true, message: 'Profile updated successfully' });
 
-      // Calculate workout streaks
-      let currentStreak = 0;
-      let longestStreak = 0;
-      let lastWorkoutDate = null;
-
-      workouts.forEach((workout) => {
-        const workoutDate = new Date(workout.workout_date).toDateString();
-        if (!lastWorkoutDate) {
-          currentStreak = 1;
-        } else {
-          const dayDiff = Math.floor((new Date(lastWorkoutDate) - new Date(workoutDate)) / (1000 * 60 * 60 * 24));
-          if (dayDiff === 1) {
-            currentStreak++;
-          } else {
-            longestStreak = Math.max(longestStreak, currentStreak);
-            currentStreak = 1;
-          }
-        }
-        lastWorkoutDate = workoutDate;
-      });
-      longestStreak = Math.max(longestStreak, currentStreak);
-
-      // Add statistics to the response
-      const enhancedProfile = {
-        ...updatedProfile,
-        statistics: {
-          totalWorkouts,
-          totalDuration: totalMinutes,
-          averageWorkoutLength: avgWorkoutMinutes,
-          totalHours,
-          longestStreak,
-          currentStreak,
-          caloriesBurned: Math.round(updatedProfile.profile?.calories_burnt || 0),
-          favoriteExercise: JSON.parse(updatedProfile.profile?.exercise_history || '{}').favoriteExercise || 'Not set'
-        }
-      };
-
-      return res.status(200).json(enhancedProfile);
     } catch (error) {
-      console.error('Detailed error updating profile:', error);
-      return res.status(500).json({ error: 'Error updating profile data', details: error.message });
+      console.error('PUT error:', error);
+      return res.status(500).json({ error: 'Error updating profile data' });
     }
   }
 
-  // Return 405 for any other HTTP method
   return res.status(405).json({ error: 'Method not allowed' });
 }
+
+
