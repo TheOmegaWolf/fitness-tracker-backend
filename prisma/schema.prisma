@@ -3,22 +3,23 @@ generator client {
 }
 
 datasource db {
-  provider = "mysql" // Change to "postgresql" if using PostgreSQL
-  url      = "mysql://root:akshay.s@localhost:3306/fitnesstracker2"
+  provider = "mysql"
+  url      = env("DATABASE_URL")
 }
 
 model Users {
-  user_id      Int            @id @default(autoincrement())
-  name         String
-  phone        String?
-  email        String         @unique
-  password     String
-  created_at   DateTime       @default(now())
-  last_login   DateTime?
-  paid         Boolean        @default(false)
-  profile      Profile?
-  subscription Subscriptions?
-  
+  user_id           Int            @id @default(autoincrement())
+  name              String
+  phone             String?
+  email             String         @unique
+  password          String
+  created_at        DateTime       @default(now())
+  last_login        DateTime?
+  paid              Boolean        @default(false)
+  profile           Profile?
+  subscription      Subscriptions?
+  sent_messages     Chat[]         @relation("SentMessages")
+  received_messages Chat[]         @relation("ReceivedMessages")
 }
 
 model Profile {
@@ -89,7 +90,7 @@ model Workout {
   start_time   DateTime?
   exercise     Exercise  @relation(fields: [exercise_id], references: [exercise_id], onDelete: Cascade)
   exercise_id  Int
-  duration     Int? // in minutes
+  duration     Int?
   activity     Activity?
   analysis     Analysis?
 }
@@ -109,7 +110,7 @@ model Analysis {
   exercise    Exercise @relation(fields: [exercise_id], references: [exercise_id], onDelete: Cascade)
   exercise_id Int
   workout     Workout  @relation(fields: [workout_id], references: [workout_id], onDelete: Cascade)
-  workout_id  Int      @unique // Ensure it's unique for a one-to-one relation
+  workout_id  Int      @unique
 }
 
 model Subscriptions {
@@ -133,4 +134,14 @@ model Progress {
   weight         Float?
   calories_burnt Float?
   fat_percentage Float?
+}
+
+model Chat {
+  chat_id     Int      @id @default(autoincrement())
+  sender_id   Int
+  receiver_id Int
+  message     String
+  timestamp   DateTime @default(now())
+  sender      Users    @relation("SentMessages", fields: [sender_id], references: [user_id])
+  receiver    Users    @relation("ReceivedMessages", fields: [receiver_id], references: [user_id])
 }
