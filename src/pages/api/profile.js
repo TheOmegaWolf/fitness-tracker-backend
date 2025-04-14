@@ -138,30 +138,7 @@ export default async function handler(req, res) {
       // If userId is provided, use the second approach
       if (userId) {
         profile = await prisma.profile.findUnique({
-          where: { user_id: parseInt(userId) },
-          include: {
-            progressRecords: {
-              orderBy: {
-                record_date: 'desc'
-              },
-              take: 10 // Get only recent records
-            },
-            workouts: {
-              include: {
-                exercise: true
-              },
-              orderBy: {
-                workout_date: 'desc'
-              },
-              take: 5 // Get only recent workouts
-            },
-            activities: {
-              orderBy: {
-                activity_id: 'desc'
-              },
-              take: 10 // Get only recent activities
-            }
-          }
+          where: { user_id: parseInt(userId) }
         });
 
         if (!profile) {
@@ -187,11 +164,7 @@ export default async function handler(req, res) {
         `;
 
         return res.status(200).json({
-          profile,
-          stats: {
-            workouts: workoutStats[0] || { totalWorkouts: 0, totalMinutes: 0 },
-            activities: activityStats[0] || { totalSteps: 0, totalActiveMinutes: 0 }
-          }
+          profile
         });
       }
 

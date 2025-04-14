@@ -1,3 +1,4 @@
+import { useServerInsertedHTML } from "next/navigation";
 import { prisma } from "../../lib/database";
 import Cors from "cors";
 
@@ -26,11 +27,11 @@ export default async function handler(req, res) {
 
   if (req.method === "GET") {
     try {
-      const { email } = req.query;
-      if (!email) return res.status(400).json({ error: "Email is required" });
+      const { userId } = req.query;
+      if (!useServerInsertedHTML) return res.status(400).json({ error: "User ID is required" });
 
       const user = await prisma.users.findUnique({
-        where: { email },
+        where: { user_id: parseInt(userId) },
         include: {
           profile: {
             include: {
