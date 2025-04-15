@@ -26,20 +26,28 @@ model Profile {
   profile_id       Int        @id @default(autoincrement())
   user             Users      @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
   user_id          Int        @unique
+  gender           String?    // Added gender field
+  birthday         DateTime?  // Added birthday field
+  curr_height           Float?     // Renamed from curr_height
   curr_weight      Float?
-  curr_height      Float?
-  total_steps      Int        @default(0)
-  calories_burnt   Float      @default(0.0)
-  photo            String?    @db.Text
-  exercise_history String?    @db.Text
+  goal_weight      Float?     // Added goal weight
+  fitness_level    FitnessLevel? // Added fitness level enum
+  fitness_goals    Json?      // JSON array for multiple fitness goals
+  profile_pic      String?   @db.LongText // Renamed from photo for clarity
   progress         String?    @db.Text
   nutrition        String?    @db.Text
-  active_plan      String?    @db.Text
   workouts         Workout[]
   activities       Activity[]
   progressRecords  Progress[]
   intakes          Intake[]
-  purchase_plans   Json?
+  
+}
+
+// Added enum for fitness level
+enum FitnessLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
 }
 
 model Nutrition {
@@ -71,7 +79,7 @@ model Intake {
 model Exercise {
   exercise_id   Int        @id @default(autoincrement())
   title         String
-  description   String?
+  description   String?    @db.Text
   type          String?
   equipment     String?
   level         String?
