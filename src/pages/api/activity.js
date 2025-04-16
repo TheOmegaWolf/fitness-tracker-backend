@@ -29,7 +29,7 @@ export default async function handler(req, res) {
     try {
       const { userId } = req.query;
       if (!userId) return res.status(400).json({ error: "User ID is required" });
-
+  
       const user = await prisma.users.findUnique({
         where: { user_id: parseInt(userId) },
         include: {
@@ -38,25 +38,37 @@ export default async function handler(req, res) {
               workouts: {
                 include: { exercise: true, activity: true },
                 orderBy: { workout_date: "desc" },
-                take: 10,
+                take: 20, // Increase the limit for better data
               },
-              activities: { orderBy: { activity_id: "desc" }, take: 5 },
+              activities: { 
+                orderBy: { activity_id: "desc" }, 
+                take: 30 // Get more activities for weekly analysis
+              },
+              progressRecords: {
+                orderBy: { record_date: "desc" },
+                take: 12 // Get last 12 months of progress
+              }
             },
           },
           subscription: true,
         },
       });
-
+  
       if (!user) return res.status(404).json({ error: "Profile not found" });
-
+  
+      // Calculate statistics
       const workouts = user.profile?.workouts || [];
+      const activities = user.profile?.activities || [];
+      const progressRecords = user.profile?.progressRecords || [];
+  
       const totalDuration = workouts.reduce(
         (acc, w) => acc + (w.duration || 0),
         0
       );
       const totalWorkouts = workouts.length;
       const avgWorkout = totalWorkouts > 0 ? totalDuration / totalWorkouts : 0;
-
+      const totalSteps = activities.reduce((acc, a) => acc + (a.steps || 0), 0);
+  
       // Streaks
       let currentStreak = 0,
         longestStreak = 0,
@@ -76,12 +88,53 @@ export default async function handler(req, res) {
         lastDate = d;
       });
       longestStreak = Math.max(longestStreak, currentStreak);
-
+  
+      // Format workout data for the dashboard
+      const formattedWorkouts = workouts.map(workout => ({
+        id: workout.workout_id,
+        date: workout.workout_date,
+        duration: workout.duration || 0,
+        exerciseType: workout.exercise?.type || "Other",
+        exerciseName: workout.exercise?.title || "Workout",
+        bodyPart: workout.exercise?.body_part || null
+      }));
+  
+      // Format activities for the dashboard
+      const formattedActivities = activities.map(activity => ({
+        id: activity.activity_id,
+        date: activity.workout?.workout_date || new Date().toISOString(),
+        steps: activity.steps || 0,
+        minutes: activity.minutes || 0
+      }));
+  
+      // Format progress records for the dashboard
+      const formattedProgress = progressRecords.map(progress => ({
+        record_date: progress.record_date,
+        weight: progress.weight || 0,
+        height: progress.height || 0,
+        calories_burnt: progress.calories_burnt || 0,
+        fat_percentage: progress.fat_percentage || 0,
+        steps: activities.filter(a => {
+          const progressDate = new Date(progress.record_date);
+          const activityDate = new Date(a.workout?.workout_date || new Date());
+          return progressDate.getMonth() === activityDate.getMonth() && 
+                 progressDate.getFullYear() === activityDate.getFullYear();
+        }).reduce((sum, a) => sum + (a.steps || 0), 0),
+        workout_duration: workouts.filter(w => {
+          const progressDate = new Date(progress.record_date);
+          const workoutDate = new Date(w.workout_date);
+          return progressDate.getMonth() === workoutDate.getMonth() && 
+                 progressDate.getFullYear() === workoutDate.getFullYear();
+        }).reduce((sum, w) => sum + (w.duration || 0), 0)
+      }));
+  
+      // Get exercise history and progress from profile
       const exerciseHistory = JSON.parse(
         user.profile?.exercise_history || "{}"
       );
       const progress = JSON.parse(user.profile?.progress || "{}");
-
+  
+      // Prepare the response object
       const response = {
         personalInfo: {
           firstName: user.name?.split(" ")[0] || "",
@@ -91,21 +144,21 @@ export default async function handler(req, res) {
           birthdate: exerciseHistory.birthdate || "",
           height: user.profile?.curr_height || 0,
           currentWeight: user.profile?.curr_weight || 0,
-          goalWeight: progress.targetWeight || 0,
+          goalWeight: user.profile?.goal_weight || 0,
           phoneNumber: user.phone || "",
           profileImage: user.profile?.profile_pic || "",
         },
         fitnessInfo: {
-          fitnessLevel: exerciseHistory.fitnessLevel || "",
+          fitnessLevel: user.profile?.fitness_level || "",
           activityLevel: exerciseHistory.activityLevel || "",
           workoutFrequency: exerciseHistory.workoutFrequency || 0,
-          fitnessGoals: progress.fitnessGoals || [],
+          fitnessGoals: user.profile?.fitness_goals || [],
           preferredWorkouts: exerciseHistory.preferredWorkouts || [],
           medicalConditions: exerciseHistory.medicalConditions || [],
           startDate: progress.startDate || "",
         },
         accountInfo: {
-          username: user.username || "",
+          username: user.email?.split("@")[0] || "",
           memberSince: user.created_at?.toISOString().split("T")[0],
           subscription: user.subscription?.plan_purchased || "Free",
           subscriptionRenewal: user.subscription?.exp_date
@@ -124,15 +177,19 @@ export default async function handler(req, res) {
         statistics: {
           totalWorkouts,
           totalDuration,
+          totalSteps,
           averageWorkoutLength: Math.round(avgWorkout),
           longestStreak,
           currentStreak,
           caloriesBurned: Math.round(user.profile?.calories_burnt || 0),
           favoriteExercise: exerciseHistory.favoriteExercise || "Not set",
         },
+        workouts: formattedWorkouts,
+        activities: formattedActivities,
+        progressRecords: formattedProgress,
         purchasedPlans: user.profile?.purchased_plans || [],
       };
-
+  
       return res.status(200).json(response);
     } catch (err) {
       console.error("GET error:", err);
