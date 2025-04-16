@@ -81,7 +81,7 @@ export default async function handler(req, res) {
   await runMiddleware(req, res, cors);
   if (req.method === "POST") {
     try {
-      const { userId, workouts, steps, activeMinutes } = req.body;
+      const { userId, workouts, steps, activeMinutes, caloriesBurned } = req.body;
 
       // Validate request data
       if (!userId) {
@@ -145,7 +145,17 @@ export default async function handler(req, res) {
 
           savedItems.push(savedWorkout);
         }
-
+        if(caloriesBurned > 0){
+          const savedProgress = await prisma.progress.create({
+            data: {
+              profile_id: profile.profile_id,
+              calories_burnt: caloriesBurned,
+              height: profile.curr_height,
+              weight: profile.curr_weight,
+              record_date: new Date(),
+            },
+          });
+        }
         // Save activity metrics (steps and active minutes) if provided
         if (steps > 0 || activeMinutes > 0) {
           // Ensure activeMinutes is a number

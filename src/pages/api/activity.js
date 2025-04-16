@@ -20,6 +20,26 @@ function runMiddleware(req, res, fn) {
   });
 }
 
+export async function getTotalCaloriesBurned(profileId) {
+  try {
+    const result = await prisma.progress.aggregate({
+      where: {
+        profile_id: profileId,
+      },
+      _sum: {
+        calories_burnt: true,
+      },
+    });
+    
+    // Fallback to 0 if null
+    const totalCalories = result._sum.calories_burnt || 0;
+
+    return totalCalories;
+  } catch (error) {
+    console.error("Error fetching total calories burned:", error);
+    throw new Error("Failed to fetch total calories.");
+  }
+}
 export default async function handler(req, res) {
   await runMiddleware(req, res, cors);
 
@@ -96,6 +116,10 @@ export default async function handler(req, res) {
         duration: workout.duration || 0,
         exerciseType: workout.exercise?.type || "Other",
         exerciseName: workout.exercise?.title || "Workout",
+        exerciseLevel : workout.exercise?.level || "Beginner",
+        exerciseDescription: workout.exercise?.description || "No description",
+        youtubeVideo: workout.exercise?.youtube_video || null, 
+        exerciseId: workout.exercise?.exercise_id || null,
         bodyPart: workout.exercise?.body_part || null
       }));
   
@@ -133,7 +157,8 @@ export default async function handler(req, res) {
         user.profile?.exercise_history || "{}"
       );
       const progress = JSON.parse(user.profile?.progress || "{}");
-  
+      const caloriesBurnt = await getTotalCaloriesBurned(user.profile?.profile_id || -1);
+      console.log("Calories Burnt:", caloriesBurnt);
       // Prepare the response object
       const response = {
         personalInfo: {
@@ -181,7 +206,7 @@ export default async function handler(req, res) {
           averageWorkoutLength: Math.round(avgWorkout),
           longestStreak,
           currentStreak,
-          caloriesBurned: Math.round(user.profile?.calories_burnt || 0),
+          caloriesBurned: caloriesBurnt || 0,
           favoriteExercise: exerciseHistory.favoriteExercise || "Not set",
         },
         workouts: formattedWorkouts,
@@ -198,7 +223,7 @@ export default async function handler(req, res) {
   }
   if (req.method === "POST") {
     try {
-      const { userId, workoutPlan, steps, activeMinutes } = req.body;
+      const { userId, workoutPlan, steps, activeMinutes, caloriesBurned } = req.body;
       if (!userId || !workoutPlan)
         return res
           .status(400)
@@ -270,26 +295,25 @@ export default async function handler(req, res) {
         });
 
         // Update profile statistics
-        await prisma.profile.update({
-          where: { profile_id: userProfile.profile_id },
-          data: {
-            // Calculate approximate calories burnt (simple estimation)
-            calories_burnt: {
-              increment: (steps * 0.04) + (activeMinutes * 4) + (totalDuration * 5)
-            }
-          }
-        });
+        // await prisma.profile.update({
+        //   where: { profile_id: userProfile.profile_id },
+        //   data: {
+        //     // Calculate approximate calories burnt (simple estimation)
+        //     calories_burnt: {
+        //       increment: (steps * 0.04) + (activeMinutes * 4) + (totalDuration * 5)
+        //     }
+        //   }
+        // });
       }
-
       // Also create progress record for this workout session
       await prisma.progress.create({
         data: {
           profile_id: userProfile.profile_id,
-          calories_burnt: (steps * 0.04) + (activeMinutes * 4) + (totalDuration * 5),
+          calories_burnt: caloriesBurned || 0,
           // You can add height/weight/fat_percentage if available
         }
       });
-
+      console.log(prisma.progress);
       return res.status(200).json({ success: true, workouts: savedWorkouts });
     } catch (error) {
       console.error("POST error:", error);
@@ -373,7 +397,6 @@ export default async function handler(req, res) {
                 curr_height: profileData.personalInfo.height,
                 goal_weight: profileData.personalInfo.goalWeight,
                 gender: profileData.personalInfo.gender,
-                calories_burnt: profileData.statistics.caloriesBurned || 0,
                 profile_pic: profileData.personalInfo.profileImage,
                 fitness_level: profileData.fitnessInfo.fitnessLevel || "BEGINNER",
                 fitness_goals: profileData.fitnessInfo.fitnessGoals || [],
@@ -383,7 +406,6 @@ export default async function handler(req, res) {
                 curr_height: profileData.personalInfo.height,
                 goal_weight: profileData.personalInfo.goalWeight,
                 gender: profileData.personalInfo.gender,
-                calories_burnt: profileData.statistics.caloriesBurned || 0,
                 profile_pic: profileData.personalInfo.profileImage,
                 fitness_level: profileData.fitnessInfo.fitnessLevel || "BEGINNER",
                 fitness_goals: profileData.fitnessInfo.fitnessGoals || [],
