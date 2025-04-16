@@ -53,15 +53,6 @@ export default async function handler(req, res) {
         }
       });
 
-      // Update the profile's total steps
-      await prisma.profile.update({
-        where: { profile_id: profile.profile_id },
-        data: {
-          total_steps: { increment: steps || 0 },
-          calories_burnt: { increment: ((steps * 0.04) + (minutes * 4)) || 0 }
-        }
-      });
-
       res.status(201).json({ activity });
     } catch (error) {
       console.error('Error saving activity:', error);

@@ -105,6 +105,12 @@ export default async function handler(req, res) {
 
       // Transaction to save all workouts
       const savedWorkouts = await prisma.$transaction(async (prisma) => {
+        // Get profile once outside the loop to avoid duplicate queries
+        const profile = await getProfileByUserId(parseInt(userId));
+        if (!profile) {
+          throw new Error(`Profile for user ID ${userId} not found`);
+        }
+
         // Save each workout
         const savedItems = [];
 
@@ -122,12 +128,12 @@ export default async function handler(req, res) {
 
           // Convert workout_date from string to Date
           const workoutDate = new Date(workout.date);
-          const profile = await getProfileByUserId(parseInt(userId));
+
           // Save the workout
           const savedWorkout = await prisma.workout.create({
             data: {
-              profile_id: profile.profile_id, // ✅ Correct
-              exercise_id: workout.exercise_id, // ✅ Correct
+              profile_id: profile.profile_id,
+              exercise_id: workout.exercise_id,
               workout_date: workoutDate,
               duration: workout.duration || 15,
               start_time: workout.start_time || new Date(),
@@ -142,36 +148,32 @@ export default async function handler(req, res) {
 
         // Save activity metrics (steps and active minutes) if provided
         if (steps > 0 || activeMinutes > 0) {
-          const today = new Date();
+          // Ensure activeMinutes is a number
+          const validActiveMinutes = isNaN(activeMinutes) ? 0 : activeMinutes;
 
           // Check if there's already an activity entry for today
           const existingActivity = await prisma.activity.findFirst({
             where: {
-              user_id: parseInt(userId),
-              activity_date: {
-                gte: new Date(today.setHours(0, 0, 0, 0)),
-                lt: new Date(today.setHours(23, 59, 59, 999)),
-              },
+              profile_id: profile.profile_id
             },
           });
 
           if (existingActivity) {
-            // Update existing activity
+            // Update existing activity - using "minutes" instead of "active_minutes"
             await prisma.activity.update({
               where: { activity_id: existingActivity.activity_id },
               data: {
                 steps: existingActivity.steps + steps,
-                active_minutes: existingActivity.active_minutes + activeMinutes,
+                minutes: existingActivity.minutes + validActiveMinutes,
               },
             });
           } else {
-            // Create new activity
+            // Create new activity - using "minutes" instead of "active_minutes"
             await prisma.activity.create({
               data: {
-                user_id: parseInt(userId),
-                activity_date: new Date(),
-                steps,
-                active_minutes: activeMinutes,
+                profile_id: profile.profile_id,
+                steps: steps || 0,
+                minutes: validActiveMinutes || 0,
               },
             });
           }

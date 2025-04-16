@@ -28,7 +28,7 @@ model Profile {
   user_id          Int        @unique
   gender           String?    // Added gender field
   birthday         DateTime?  // Added birthday field
-  curr_height           Float?     // Renamed from curr_height
+  curr_height      Float?     // Renamed from curr_height
   curr_weight      Float?
   goal_weight      Float?     // Added goal weight
   fitness_level    FitnessLevel? // Added fitness level enum

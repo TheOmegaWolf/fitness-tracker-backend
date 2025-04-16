@@ -28,7 +28,7 @@ export default async function handler(req, res) {
   if (req.method === "GET") {
     try {
       const { userId } = req.query;
-      if (!useServerInsertedHTML) return res.status(400).json({ error: "User ID is required" });
+      if (!userId) return res.status(400).json({ error: "User ID is required" });
 
       const user = await prisma.users.findUnique({
         where: { user_id: parseInt(userId) },
@@ -36,7 +36,7 @@ export default async function handler(req, res) {
           profile: {
             include: {
               workouts: {
-                include: { exercise: true },
+                include: { exercise: true, activity: true },
                 orderBy: { workout_date: "desc" },
                 take: 10,
               },
@@ -93,7 +93,7 @@ export default async function handler(req, res) {
           currentWeight: user.profile?.curr_weight || 0,
           goalWeight: progress.targetWeight || 0,
           phoneNumber: user.phone || "",
-          profileImage: user.profile?.photo || "",
+          profileImage: user.profile?.profile_pic || "",
         },
         fitnessInfo: {
           fitnessLevel: exerciseHistory.fitnessLevel || "",
@@ -106,9 +106,9 @@ export default async function handler(req, res) {
         },
         accountInfo: {
           username: user.username || "",
-          memberSince: user.createdAt?.toISOString().split("T")[0],
-          subscription: user.subscription?.type || "Free",
-          subscriptionRenewal: user.subscription?.renewalDate
+          memberSince: user.created_at?.toISOString().split("T")[0],
+          subscription: user.subscription?.plan_purchased || "Free",
+          subscriptionRenewal: user.subscription?.exp_date
             ?.toISOString()
             .split("T")[0],
           notificationPreferences: {
@@ -147,13 +147,25 @@ export default async function handler(req, res) {
           .status(400)
           .json({ error: "UserId and workoutPlan are required" });
 
+      // Get profile ID for the user
+      const userProfile = await prisma.profile.findUnique({
+        where: { user_id: parseInt(userId) },
+      });
+
+      if (!userProfile) {
+        return res.status(404).json({ error: "User profile not found" });
+      }
+
       // Save workout exercises to database
       const savedWorkouts = [];
+      let totalDuration = 0;
+      
       for (const exercise of workoutPlan) {
         // First ensure the exercise exists in DB or create it
-        const savedExercise = await prisma.exercises.upsert({
-          where: { title: exercise.title },
+        const savedExercise = await prisma.exercise.upsert({
+          where: { exercise_id: exercise.exercise_id || -1 },
           update: {
+            title: exercise.title,
             body_part: exercise.bodyPart,
             description: exercise.description,
             type: exercise.type,
@@ -170,30 +182,56 @@ export default async function handler(req, res) {
           },
         });
 
+        // Get exercise duration
+        const duration = exercise.duration || 15;
+        totalDuration += duration;
+
         // Then create the workout record
-        const workout = await prisma.workouts.create({
+        const workout = await prisma.workout.create({
           data: {
-            user_id: parseInt(userId),
+            profile_id: userProfile.profile_id,
             exercise_id: savedExercise.exercise_id,
-            duration: exercise.duration,
-            workout_date: new Date(exercise.date),
+            duration: duration,
+            workout_date: new Date(exercise.date || new Date()),
           },
         });
 
         savedWorkouts.push(workout);
       }
 
-      // Update user stats with steps and active minutes if needed
+      // Create an Activity record if steps or activeMinutes are provided
       if (steps || activeMinutes) {
-        await prisma.profiles.updateMany({
-          where: { user_id: parseInt(userId) },
+        // Create one activity record for all workouts if there's no specific workout associated
+        await prisma.activity.create({
           data: {
-            // You might want to append to existing values rather than overwrite
-            steps_count: { increment: steps },
-            active_minutes: { increment: activeMinutes },
-          },
+            profile_id: userProfile.profile_id,
+            steps: steps || 0,
+            minutes: activeMinutes || 0,
+            // Link to the first workout if available
+            workout_id: savedWorkouts.length > 0 ? savedWorkouts[0].workout_id : null,
+          }
+        });
+
+        // Update profile statistics
+        await prisma.profile.update({
+          where: { profile_id: userProfile.profile_id },
+          data: {
+            // Calculate approximate calories burnt (simple estimation)
+            calories_burnt: {
+              increment: (steps * 0.04) + (activeMinutes * 4) + (totalDuration * 5)
+            }
+          }
         });
       }
+
+      // Also create progress record for this workout session
+      await prisma.progress.create({
+        data: {
+          profile_id: userProfile.profile_id,
+          calories_burnt: (steps * 0.04) + (activeMinutes * 4) + (totalDuration * 5),
+          // You can add height/weight/fat_percentage if available
+        }
+      });
 
       return res.status(200).json({ success: true, workouts: savedWorkouts });
     } catch (error) {
@@ -201,6 +239,53 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: "Error saving workout data" });
     }
   }
+  
+  // Add a separate endpoint for activity tracking without workout
+  if (req.method === "POST" && req.url.includes("/steps")) {
+    try {
+      const { userId, steps, minutes } = req.body;
+      if (!userId) return res.status(400).json({ error: "User ID is required" });
+
+      // Get profile ID for the user
+      const userProfile = await prisma.profile.findUnique({
+        where: { user_id: parseInt(userId) },
+      });
+
+      if (!userProfile) {
+        return res.status(404).json({ error: "User profile not found" });
+      }
+
+      // Create Activity record
+      const activity = await prisma.activity.create({
+        data: {
+          profile_id: userProfile.profile_id,
+          steps: steps || 0,
+          minutes: minutes || 0,
+        }
+      });
+
+      // Update profile statistics
+      const caloriesBurnt = (steps * 0.04) + (minutes * 4);
+      await prisma.profile.update({
+        where: { profile_id: userProfile.profile_id },
+        data: {
+          calories_burnt: {
+            increment: caloriesBurnt
+          }
+        }
+      });
+
+      return res.status(200).json({ 
+        success: true, 
+        activity,
+        caloriesBurnt 
+      });
+    } catch (error) {
+      console.error("POST /steps error:", error);
+      return res.status(500).json({ error: "Error saving activity data" });
+    }
+  }
+  
   if (req.method === "PUT") {
     try {
       const { email, profileData } = req.body;
@@ -208,6 +293,16 @@ export default async function handler(req, res) {
         return res
           .status(400)
           .json({ error: "Email and profile data are required" });
+
+      // First get the user for access to profile
+      const user = await prisma.users.findUnique({
+        where: { email },
+        include: { profile: true }
+      });
+
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
 
       const updatedUser = await prisma.users.update({
         where: { email },
@@ -219,40 +314,22 @@ export default async function handler(req, res) {
               create: {
                 curr_weight: profileData.personalInfo.currentWeight,
                 curr_height: profileData.personalInfo.height,
+                goal_weight: profileData.personalInfo.goalWeight,
+                gender: profileData.personalInfo.gender,
                 calories_burnt: profileData.statistics.caloriesBurned || 0,
-                photo: profileData.personalInfo.profileImage,
-                exercise_history: JSON.stringify({
-                  ...profileData.fitnessInfo,
-                  gender: profileData.personalInfo.gender,
-                  birthdate: profileData.personalInfo.birthdate,
-                  favoriteExercise: profileData.statistics.favoriteExercise,
-                }),
-                progress: JSON.stringify({
-                  targetWeight: profileData.personalInfo.goalWeight,
-                  fitnessGoals: profileData.fitnessInfo.fitnessGoals,
-                  startDate: profileData.fitnessInfo.startDate,
-                  lastUpdated: new Date().toISOString(),
-                }),
-                purchasedPlans: user.profile?.purchased_plans || [],
+                profile_pic: profileData.personalInfo.profileImage,
+                fitness_level: profileData.fitnessInfo.fitnessLevel || "BEGINNER",
+                fitness_goals: profileData.fitnessInfo.fitnessGoals || [],
               },
               update: {
                 curr_weight: profileData.personalInfo.currentWeight,
                 curr_height: profileData.personalInfo.height,
+                goal_weight: profileData.personalInfo.goalWeight,
+                gender: profileData.personalInfo.gender,
                 calories_burnt: profileData.statistics.caloriesBurned || 0,
-                photo: profileData.personalInfo.profileImage,
-                exercise_history: JSON.stringify({
-                  ...profileData.fitnessInfo,
-                  gender: profileData.personalInfo.gender,
-                  birthdate: profileData.personalInfo.birthdate,
-                  favoriteExercise: profileData.statistics.favoriteExercise,
-                }),
-                progress: JSON.stringify({
-                  targetWeight: profileData.personalInfo.goalWeight,
-                  fitnessGoals: profileData.fitnessInfo.fitnessGoals,
-                  startDate: profileData.fitnessInfo.startDate,
-                  lastUpdated: new Date().toISOString(),
-                }),
-                purchasedPlans: user.profile?.purchased_plans || [],
+                profile_pic: profileData.personalInfo.profileImage,
+                fitness_level: profileData.fitnessInfo.fitnessLevel || "BEGINNER",
+                fitness_goals: profileData.fitnessInfo.fitnessGoals || [],
               },
             },
           },

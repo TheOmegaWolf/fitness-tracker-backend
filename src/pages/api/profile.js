@@ -35,8 +35,7 @@ export default async function handler(req, res) {
   }
 
   // Authenticate user (extract user from Authorization header, which now contains the email from session storage)
-  const userEmail = req.headers.authorization;
-  
+  const userEmail = req.query.email
   if (!userEmail) {
     return res.status(401).json({ error: 'Unauthorized - Email not provided' });
   }
