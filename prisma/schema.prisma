@@ -20,6 +20,7 @@ model Users {
   subscription      Subscriptions?
   sent_messages     Chat[]         @relation("SentMessages")
   received_messages Chat[]         @relation("ReceivedMessages")
+  bookings      Bookings[]
 }
 
 model Profile {
@@ -152,4 +153,18 @@ model Chat {
   timestamp   DateTime @default(now())
   sender      Users    @relation("SentMessages", fields: [sender_id], references: [user_id])
   receiver    Users    @relation("ReceivedMessages", fields: [receiver_id], references: [user_id])
+}
+
+model Bookings {
+  booking_id      Int       @id @default(autoincrement())
+  user            Users     @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+  user_id         Int
+  trainer_id      Int
+  booking_date    DateTime
+  booking_time    String
+  session_type    String
+  notes           String?
+  status          String    @default("confirmed") // confirmed, cancelled, completed
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
 }
