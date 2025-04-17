@@ -158,7 +158,7 @@ export default async function handler(req, res) {
       );
       const progress = JSON.parse(user.profile?.progress || "{}");
       const caloriesBurnt = await getTotalCaloriesBurned(user.profile?.profile_id || -1);
-      console.log("Calories Burnt:", caloriesBurnt);
+      // console.log("Calories Burnt:", caloriesBurnt);
       // Prepare the response object
       const response = {
         personalInfo: {
