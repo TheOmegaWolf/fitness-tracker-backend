@@ -1,8 +1,15 @@
+/* Last Name, First Name - Student ID */
+/* 
+ Suresh, Kaushick ( 1002237680 ), 
+ Sivaprakash, Akshay Prassanna ( 1002198274 ) ,  
+ Sonwane, Pratik ( 1002170610 ) , 
+ Shaik, Arfan ( 1002260039 ) , 
+ Sheth, Jeet ( 1002175315 ) 
+*/
 import { prisma } from '../../lib/database';
 import Cors from 'cors';
 import { DateTime } from 'luxon';
 
-// Initialize the CORS middleware
 const cors = Cors({
   methods: ['GET', 'POST', 'PUT', 'OPTIONS'],
   origin: ['http://localhost:3001', 'http://localhost:3000'], // Add your origins here
